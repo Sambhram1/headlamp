@@ -773,6 +773,18 @@ func TestHandleConfigLoadError(t *testing.T) {
 			},
 		},
 		{
+			name:        "illegal base64 with unrecognized field",
+			err:         errors.New("illegal base64 data"),
+			contextName: "test-context",
+			clusterName: "test-cluster",
+			userName:    "test-user",
+			kubeconfig:  map[string]interface{}{},
+			want: kubeconfig.ContextError{
+				ContextName: "test-context",
+				Reason:      "Error loading config: illegal base64 data",
+			},
+		},
+		{
 			name:        "no server found",
 			err:         errors.New("no server found"),
 			contextName: "test-context",

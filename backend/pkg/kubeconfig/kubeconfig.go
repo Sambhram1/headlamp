@@ -743,10 +743,12 @@ func HandleConfigLoadError(
 ) error {
 	switch {
 	case strings.Contains(err.Error(), "illegal base64"):
-		// Try to identify which field has invalid base64
-		// If checkBase64Errors returns nil, it means the base64 data is valid
-		// (likely a false positive from client-go), so we return nil to allow loading
-		return checkBase64Errors(kubeconfig, contextName, clusterName, userName)
+		base64Err := checkBase64Errors(kubeconfig, contextName, clusterName, userName)
+		if base64Err != nil {
+			return base64Err
+		}
+
+		return ContextError{ContextName: contextName, Reason: fmt.Sprintf("Error loading config: %v", err)}
 	case strings.Contains(err.Error(), "no server found"):
 		return ClusterError{
 			ClusterName: clusterName,
@@ -782,15 +784,17 @@ func checkBase64Errors(kubeconfig map[string]interface{}, contextName, clusterNa
 	var errs []error
 
 	// Check user data
-	userDetails, _ := getUser(kubeconfig, userName)
-	if userMap, ok := userDetails["user"].(map[interface{}]interface{}); ok {
-		errs = append(errs, checkUserBase64Fields(userMap, userName)...)
+	if userDetails, err := getUser(kubeconfig, userName); err == nil {
+		if userMap, ok := userDetails["user"].(map[interface{}]interface{}); ok {
+			errs = append(errs, checkUserBase64Fields(userMap, userName)...)
+		}
 	}
 
 	// Check cluster data
-	clusterDetails, _ := getCluster(kubeconfig, clusterName)
-	if clusterMap, ok := clusterDetails["cluster"].(map[interface{}]interface{}); ok {
-		errs = append(errs, checkClusterBase64Fields(clusterMap, clusterName)...)
+	if clusterDetails, err := getCluster(kubeconfig, clusterName); err == nil {
+		if clusterMap, ok := clusterDetails["cluster"].(map[interface{}]interface{}); ok {
+			errs = append(errs, checkClusterBase64Fields(clusterMap, clusterName)...)
+		}
 	}
 
 	if len(errs) > 0 {
@@ -854,7 +858,10 @@ func toStringKeyMap(m map[interface{}]interface{}) map[interface{}]interface{} {
 
 // getCluster gets the cluster details from the kubeconfig.
 func getCluster(kubeconfig map[string]interface{}, clusterName string) (map[interface{}]interface{}, error) {
-	clusters := kubeconfig["clusters"].([]interface{})
+	clusters, ok := kubeconfig["clusters"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid or missing clusters in kubeconfig")
+	}
 
 	for _, cluster := range clusters {
 		clusterMap, ok := cluster.(map[interface{}]interface{})
